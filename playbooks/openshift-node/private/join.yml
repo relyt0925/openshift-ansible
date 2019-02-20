@@ -45,6 +45,7 @@
     register: node_bootstrap_csr_approve
     retries: 30
     until: node_bootstrap_csr_approve is succeeded
+    ignore_errors: True
     when:
     - l_nodes_to_join|length > 0
 
