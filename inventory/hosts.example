@@ -11,9 +11,11 @@ ose3-master[1:3].test.example.com
 ose3-master[1:3].test.example.com
 
 [nodes]
-ose3-master[1:3].test.example.com
-ose3-infra[1:2].test.example.com
-ose3-node[1:2].test.example.com
+# openshift_node_group_name must be provided for each node
+# See 'Node Group Definition and Mapping' in the project README for more details
+ose3-master[1:3].test.example.com openshift_node_group_name="node-config-master"
+ose3-infra[1:2].test.example.com openshift_node_group_name="node-config-infra"
+ose3-node[1:2].test.example.com openshift_node_group_name="node-config-compute"
 
 [nfs]
 ose3-master1.test.example.com
@@ -249,6 +251,20 @@ debug_level=2
 # or
 #openshift_master_request_header_ca_file=<path to local ca file to use>
 
+# GitHub auth
+#openshift_master_identity_providers=[{"name": "github", "login": "true", "challenge": "false", "kind": "GitHubIdentityProvider", "mappingMethod": "claim", "client_id": "my_client_id", "client_secret": "my_client_secret", "teams": ["team1", "team2"], "hostname": "githubenterprise.example.com", "ca": "" }]
+#
+# Configure github CA certificate
+# Specify either the ASCII contents of the certificate or the path to
+# the local file that will be copied to the remote host. CA
+# certificate contents will be copied to master systems and saved
+# within /etc/origin/master/ with a filename matching the "ca" key set
+# within the GitHubIdentityProvider.
+#
+#openshift_master_github_ca=<ca text>
+# or
+#openshift_master_github_ca_file=<path to local ca file to use>
+
 # CloudForms Management Engine (ManageIQ) App Install
 #
 # Enables installation of MIQ server. Recommended for dedicated
@@ -281,6 +297,7 @@ debug_level=2
 #openshift_cloudprovider_openstack_tenant_name=tenant_name
 #openshift_cloudprovider_openstack_region=region
 #openshift_cloudprovider_openstack_lb_subnet_id=subnet_id
+#openshift_cloudprovider_openstack_lb_floating_network_id=floating_network_id
 #
 # Note: If you're getting a "BS API version autodetection failed" when provisioning cinder volumes you may need this setting
 #openshift_cloudprovider_openstack_blockstorage_version=v2
@@ -291,6 +308,10 @@ debug_level=2
 # defined.
 # openshift_gcp_project is the project-id
 #openshift_gcp_project=
+# openshift_gcp_network_project is the project-id where the network-id lives defaults to openshift_gcp_project
+#openshift_gcp_network_project=
+# openshift_gcp_network_name is the network-id
+#openshift_gcp_network_name=
 # openshift_gcp_prefix is a unique string to identify each openshift cluster.
 #openshift_gcp_prefix=
 #openshift_gcp_multizone=False
@@ -307,7 +328,7 @@ debug_level=2
 #openshift_cloudprovider_vsphere_datacenter=datacenter
 #openshift_cloudprovider_vsphere_datastore=datastore
 #openshift_cloudprovider_vsphere_folder=optional_folder_name
-
+#openshift_cloudprovider_vsphere_network="public network portgroup"
 
 # Project Configuration
 #osm_project_request_message=''
@@ -372,6 +393,10 @@ debug_level=2
 # glusterfs plugin dependencies will be installed, if available.
 #osn_storage_plugin_deps=['ceph','glusterfs','iscsi']
 
+# Configure datastore layer encryption, the encryption key can be gererated
+# with the following command: 'head -c 32 /dev/urandom | base64'
+#openshift_encryption_config="{'kind': 'EncryptionConfig','apiVersion': 'v1','resources': [{'resources': ['secrets'],'providers': [{'aescbc': {'keys': [{'name': 'key1','secret': 'xxxxxxxx'}]}},{'identity': {}}]}]}"
+#
 # OpenShift Router Options
 #
 # An OpenShift router will be created during install if there are
@@ -643,10 +668,14 @@ debug_level=2
 # openshift_cluster_monitoring_operator_install=false
 #
 # Cluster monitoring configuration variables allow setting the amount of
-# storage requested through PersistentVolumeClaims.
+# storage and storageclass requested through PersistentVolumeClaims.
 #
 # openshift_cluster_monitoring_operator_prometheus_storage_capacity="50Gi"
 # openshift_cluster_monitoring_operator_alertmanager_storage_capacity="2Gi"
+#
+# openshift_cluster_monitoring_operator_prometheus_storage_class_name=""
+# openshift_cluster_monitoring_operator_alertmanager_storage_class_name=""
+
 
 # Logging deployment
 #
@@ -698,25 +727,6 @@ debug_level=2
 # Configure the number of elastic search nodes, unless you're using dynamic provisioning
 # this value must be 1
 #openshift_logging_es_cluster_size=1
-
-# Prometheus deployment
-#
-# Currently prometheus deployment is disabled by default, enable it by setting this
-#openshift_hosted_prometheus_deploy=true
-#
-# Prometheus storage config
-# By default prometheus uses emptydir storage, if you want to persist you should
-# configure it to use pvc storage type. Each volume must be ReadWriteOnce.
-#openshift_prometheus_storage_type=emptydir
-#openshift_prometheus_alertmanager_storage_type=emptydir
-#openshift_prometheus_alertbuffer_storage_type=emptydir
-# Use PVCs for persistence
-#openshift_prometheus_storage_type=pvc
-#openshift_prometheus_alertmanager_storage_type=pvc
-#openshift_prometheus_alertbuffer_storage_type=pvc
-
-# Grafana deployment, requires Prometheus
-#openshift_hosted_grafana_deploy=true
 
 # Configure the multi-tenant SDN plugin (default is 'redhat/openshift-ovs-subnet')
 # os_sdn_network_plugin_name='redhat/openshift-ovs-multitenant'
@@ -844,7 +854,7 @@ debug_level=2
 #logrotate_scripts=[{"name": "syslog", "path": "/var/log/cron\n/var/log/maillog\n/var/log/messages\n/var/log/secure\n/var/log/spooler\n", "options": ["daily", "rotate 7", "compress", "sharedscripts", "missingok"], "scripts": {"postrotate": "/bin/kill -HUP `cat /var/run/syslogd.pid 2> /dev/null` 2> /dev/null || true"}}]
 
 # The OpenShift-Ansible installer will fail when it detects that the
-# value of openshift_hostname resolves to an IP address not bound to any local
+# value of openshift_kubelet_name_override resolves to an IP address not bound to any local
 # interfaces. This mis-configuration is problematic for any pod leveraging host
 # networking and liveness or readiness probes.
 # Setting this variable to false will override that check.

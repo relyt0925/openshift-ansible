@@ -52,9 +52,20 @@
     mode: '0750'
   when: not openshift_is_atomic | bool
 
+- name: Create openshift audit log directory
+  file:
+    state: directory
+    path: "/var/log/origin"
+    mode: 0700
+  when:
+  - openshift.master.audit_config is defined
+  - openshift.master.audit_config.auditFilePath is defined
+  - '"/var/log/origin" in openshift.master.audit_config.auditFilePath'
+
 - name: Create the policy file if it does not already exist
   command: >
-    {{ openshift_client_binary }} adm create-bootstrap-policy-file
+    {{ openshift_client_binary }} --config={{ openshift.common.config_base }}/master/admin.kubeconfig
+      adm create-bootstrap-policy-file
       --filename={{ openshift_master_policy }}
   args:
     creates: "{{ openshift_master_policy }}"
@@ -64,6 +75,12 @@
     content: "{{ scheduler_config | to_nice_json }}"
     dest: "{{ openshift_master_scheduler_conf }}"
     backup: true
+
+- name: Generate encryption config
+  copy:
+    content: "{{ openshift_encryption_config }}"
+    dest: "{{ openshift_encryption_config_file }}"
+  when: openshift_encryption_config is defined
 
 - import_tasks: htpass_provider.yml
 
@@ -87,6 +104,17 @@
   when:
   - openshift.master.openid_ca is defined
   - item.kind == 'OpenIDIdentityProvider'
+  with_items: "{{ openshift_master_identity_providers }}"
+
+- name: Create the GitHub (Enterprise) ca file if needed
+  copy:
+    dest: "/etc/origin/master/{{ item.name }}_github_ca.crt"
+    content: "{{ openshift.master.github_ca }}"
+    mode: 0600
+    backup: yes
+  when:
+  - openshift.master.github_ca is defined
+  - item.kind == 'GitHubIdentityProvider'
   with_items: "{{ openshift_master_identity_providers }}"
 
 - name: Create the request header ca file if needed
@@ -175,7 +203,7 @@
   oc_obj:
     state: list
     kind: pod
-    name: "master-{{ item }}-{{ openshift.node.nodename | lower }}"
+    name: "master-{{ item }}-{{ l_kubelet_node_name | lower }}"
     namespace: kube-system
   register: control_plane_pods
   until:
@@ -227,7 +255,7 @@
   oc_obj:
     state: list
     kind: pod
-    name: "master-{{ item }}-{{ openshift.node.nodename | lower }}"
+    name: "master-{{ item }}-{{ l_kubelet_node_name | lower }}"
     namespace: kube-system
   register: control_plane_health
   until:

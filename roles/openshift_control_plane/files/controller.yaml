@@ -37,6 +37,10 @@ spec:
      - mountPath: /usr/libexec/kubernetes/kubelet-plugins
        name: kubelet-plugins
        mountPropagation: "HostToContainer"
+     - mountPath: /etc/pki
+       name: master-pki
+     - mountPath: /etc/localtime
+       name: host-localtime
     livenessProbe:
       httpGet:
         scheme: HTTPS
@@ -57,3 +61,9 @@ spec:
   - name: kubelet-plugins
     hostPath:
       path: /usr/libexec/kubernetes/kubelet-plugins
+  - name: master-pki
+    hostPath:
+      path: /etc/pki
+  - name: host-localtime
+    hostPath:
+      path: /etc/localtime

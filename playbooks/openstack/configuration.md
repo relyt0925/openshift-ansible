@@ -18,6 +18,7 @@ Environment variables may also be used.
 * [DNS Configuration](#dns-configuration)
 * [Floating IP Address Configuration](#floating-ip-address-configuration)
 * [All-in-one Deployment Configuration](#all-in-one-deployment-configuration)
+* [Separate etcd Deployment Configuration](#separate-etcd-deployment-configuration)
 * [Building Node Images](#building-node-images)
 * [Kuryr Networking Configuration](#kuryr-networking-configuration)
 * [Provider Network Configuration](#provider-network-configuration)
@@ -29,6 +30,7 @@ Environment variables may also be used.
 * [Scaling The OpenShift Cluster](#scaling-the-openshift-cluster)
 * [Deploying At Scale](#deploying-at-scale)
 * [Using A Static Inventory](#using-a-static-inventory)
+* [Using CRI-O](#using-cri-o)
 
 
 ## OpenStack Configuration
@@ -38,10 +40,12 @@ In `inventory/group_vars/all.yml`:
 * `openshift_openstack_keypair_name` OpenStack keypair to use.
 * Role Node Counts
   * `openshift_openstack_num_masters` Number of master nodes to create.
+  * `openshift_openstack_num_etcd` Number of etcd nodes to create (0 if co-hosted on master hosts).
   * `openshift_openstack_num_infra` Number of infra nodes to create.
   * `openshift_openstack_num_nodes` Number of app nodes to create.
 * Role Node Floating IP Allocation
   * `openshift_openstack_master_floating_ip` Assign floating IP to master nodes. Defaults to `True`.
+  * `openshift_openstack_etcd_floating_ip` Assign floating IP to etcd nodes (if any). Defaults to `True`.
   * `openshift_openstack_infra_floating_ip` Assign floating IP to infra nodes. Defaults to `True`.
   * `openshift_openstack_compute_floating_ip` Assign floating IP to app nodes. Defaults to `True`.
 * Role Images
@@ -505,6 +509,7 @@ First, set the node counts and labels like so in
 
 ```
 openshift_openstack_num_masters: 1
+openshift_openstack_num_etcd: 0
 openshift_openstack_num_infra: 0
 openshift_openstack_num_nodes: 0
 
@@ -531,6 +536,28 @@ this new group to it.
 
 Note that the "all in one" node must be the "master". openshift-ansible
 expects at least one node in the `masters` Ansible group.
+
+
+## Separate etcd Deployment Configuration
+
+If you want to deploy OpenShift Container Platform with the etcd running on separate hosts
+appart from the master hosts, the following changes need to be made to the inventory:
+
+Single master and single etcd host:
+```
+ :
+openshift_openstack_num_masters: 1
+openshift_openstack_num_etcd: 1
+ :
+```
+
+Multiple master and multiple etcd hosts:
+```
+ :
+openshift_openstack_num_masters: 3
+openshift_openstack_num_etcd: 3
+ :
+```
 
 
 ## Building Node Images
@@ -633,6 +660,18 @@ to the UUID of the public subnet in your OpenStack.
 **NOTE**: A lot of OpenStack deployments do not make the public subnet
 accessible to regular users.
 
+To customize the images used by kuryr pods, set the following variables:
+
+```
+# OKD
+openshift_openstack_kuryr_controller_image: kuryr/controller:latest
+openshift_openstack_kuryr_cni_image: kuryr/cni:latest
+
+# OCP
+#openshift_openstack_kuryr_cni_image:  registry.redhat.io/rhosp13/openstack-kuryr-cni:13.0
+#openshift_openstack_kuryr_controller_image: registry.redhat.io/rhosp13/openstack-kuryr-controller:13.0
+```
+
 Finally, you *must* set up an OpenStack cloud provider as specified in
  [OpenStack Cloud Provider Configuration](#openstack-cloud-provider-configuration).
 
@@ -691,6 +730,7 @@ openshift_node_groups:
   - name: node-config-master
     labels:
       - 'node-role.kubernetes.io/master=true'
+      - 'pod_vif=nested-vlan'
     edits: []
   - name: node-config-infra
     labels:
@@ -722,6 +762,23 @@ openshift_kuryr_sg_driver: namespace
 ```
 
 
+### Network Policies
+
+By default, kuryr is configured with the default isolation policy where pods
+isolation is statically defined. Kuryr also permits to enable more advanced
+and dynamic isolation policies by implementing network policies through
+security groups. To enable it you need to uncomment the following on the
+all.yml inventory file:
+
+```yaml
+openshift_kuryr_subnet_driver: namespace
+openshift_kuryr_sg_driver: policy
+```
+
+Note enabling the namespace subnet driver is required to enabled network
+policy isolation
+
+
 ### Kuryr Controller and CNI healthchecks probes
 
 By default kuryr controller and cni pods are deployed with readiness and
@@ -732,6 +789,34 @@ enable_kuryr_controller_probes: True
 enable_kuryr_cni_probes: True
 ```
 
+**NOTE:** If using OSP13 container images for kuryr-cni (registry.redhat.io/rhosp13/openstack-kuryr-cni:13.0), it is required to disable the cni probes as:
+
+```yaml
+enable_kuryr_cni_probes: True
+```
+
+### kuryr-controller in HA mode
+
+Since Rocky version of Kuryr-Kubernetes it is possible to run
+kuryr-controller in Active/Passive HA mode. This means that each
+kuryr-controller pod will run additional leader-elector container that
+will be responsible for providing it with current leader name.
+
+To enable HA you need to set:
+
+```yaml
+kuryr_controller_replicas: <desired-number-of-replicas>
+```
+
+You can also tweak container image used to run leader-elector container
+and the port it's binding to (note that kuryr-controller pod runs with
+host networking, so if you already have a process listening on the
+default port, you might want to change it:
+
+```yaml
+openshift_openstack_kuryr_elector_image: gcr.io/google_containers/leader-elector:0.5
+kuryr_controller_leader_elector_port: 16401
+```
 
 ## API and Router Load Balancing
 
@@ -763,6 +848,12 @@ This playbook defaults to using OpenStack Octavia as its LBaaSv2 provider:
 If your cloud uses the deprecated Neutron LBaaSv2 provider set:
 
     openshift_openstack_lbaasv2_provider: "Neutron::LBaaS"
+
+The Octavia listeners connection timeout associated to the API can be modified
+by setting the next variable in miliseconds (default value 500000):
+
+    openshift_openstack_api_lb_listeners_timeout: 500000
+
 
 ### VM-based Load Balancer
 
@@ -886,10 +977,13 @@ and then set the following in `inventory/group_vars/OSEv3.yml`:
 * `openshift_hosted_registry_storage_volume_size`: 10Gi
 
 For a volume *you created*, you must also specify its **UUID** (it must be
-the UUID, not the volume's name):
+the UUID, not the volume's name). If using the default storage class, you must specify
+that as well (for OpenStack it's `standard`):
 
 ```
 openshift_hosted_registry_storage_openstack_volumeID: e0ba2d73-d2f9-4514-a3b2-a0ced507fa05
+openshift_hosted_registry_storage_annotations:
+- 'volume.beta.kubernetes.io/storage-class: standard'
 ```
 
 If you want the volume *created automatically*, set the desired name instead:
@@ -917,6 +1011,7 @@ In order to do so, set the following in `inventory/group_vars/OSEv3.yml`:
 * `openshift_hosted_registry_storage_swift_tenantid`: "{{ lookup('env','OS_PROJECT_ID') }}" _# can also specify tenant_
 * `openshift_hosted_registry_storage_swift_domain`: "{{ lookup('env','OS_USER_DOMAIN_NAME') }}" _# optional; can also specifiy domainid_
 * `openshift_hosted_registry_storage_swift_domainid`: "{{ lookup('env','OS_USER_DOMAIN_ID') }}" _# optional; can also specifiy domain_
+* `openshift_hosted_registry_storage_swift_insecureskipverify`: "false" # optional; true to skip TLS verification
 
 Note that the exact environment variable names may vary depending on the contents of
 your OpenStack RC file. If you use Keystone v2, you may not need to set all of these
@@ -1016,4 +1111,178 @@ $ ansible-playbook --user openshift \
   -i hosts \
   -i inventory \
   openshift-ansible/playbooks/openstack/openshift-cluster/install.yml
+```
+
+## Using CRI-O
+There are some different scenarios to customize the container runtime in the
+instances:
+
+### All hosts use docker
+
+This is the default scenario, no changes required
+
+### All hosts using cri-o
+
+Modify the OSEv3.yml file and add the following variables:
+
+```
+openshift_use_crio_only: true
+openshift_use_crio: true
+```
+
+Modify the all.yml file and add the following variables:
+
+```
+openshift_openstack_master_group_name: node-config-master-crio
+openshift_openstack_infra_group_name: node-config-infra-crio
+openshift_openstack_compute_group_name: node-config-compute-crio
+```
+
+NOTE: Currently, OpenShift builds require docker.
+
+### Masters/app/infra_nodes use cri-o
+
+Add the proper variables to the `~/inventory/group_vars/` files in the ansible host such as:
+
+* `~/inventory/group_vars/[masters|openstack_infra_nodes|openstack_compute_nodes].yml`
+
+```
+openshift_use_crio_only: true/false
+openshift_use_crio: true/false
+```
+
+And the proper groups to the `~/inventory/group_vars/all.yml` file:
+```
+...
+openshift_openstack_[master|infra|compute]_group_name: node-config-[master|infra|compute]-crio
+```
+
+Example: Masters using cri-o:
+
+* `~/inventory/group_vars/masters.yml`
+
+```
+openshift_use_crio_only: true
+openshift_use_crio: true
+```
+
+* `~/inventory/group_vars/all.yml`
+
+```
+openshift_openstack_master_group_name: node-config-master-crio
+openshift_openstack_infra_group_name: node-config-infra-crio
+openshift_openstack_compute_group_name: node-config-compute-crio
+```
+
+### Some nodes using cri-o, some others docker
+
+This scenario requires the following steps:
+
+ * Create the `~/inventory/host_vars/<hostname>.yml` depending on the hostname
+of the instance you want to customize:
+
+  * For cri-o only:
+
+```
+openshift_use_crio_only: true
+openshift_use_crio: true
+openshift_node_group_name: node-config-[master|infra|compute]-crio
+```
+
+  * For docker only (optionally, by default it will install docker):
+
+```
+openshift_use_crio: false
+```
+
+  * For both cri-o and docker (and want to use cri-o as container runtime)
+
+```
+openshift_use_crio_only: false
+openshift_use_crio: true
+openshift_node_group_name: node-config-[master|infra|compute]-crio
+```
+
+Also, it is required to configure the `openshift_builddefaults_nodeselectors` variable to the proper node selector for the builds to be executed in hosts
+where docker is running as container runtime.
+
+Run the playbooks to provision and install the environment.
+
+Example:
+
+All hosts using docker as container runtime except:
+* app-node-0 using cri-o
+* app-node-1 using docker (explicitely)
+* app-node-2 using cri-o and docker
+
+In this particular case, those are variable files:
+
+* `~/inventory/host_vars/app-node-0.${DOMAIN}.yml`
+
+```
+# CRI-O only
+openshift_use_crio_only: true
+openshift_use_crio: true
+openshift_node_group_name: node-config-compute-crio
+```
+
+* `~/inventory/host_vars/app-node-1.${DOMAIN}.yml`
+
+```
+# Explicit docker
+openshift_use_crio: false
+# openshift_node_group_name: node-config-compute
+```
+
+* `~/inventory/host_vars/app-node-2.${DOMAIN}.yml`
+
+```
+# CRI-O and Docker side by side
+openshift_use_crio_only: false
+openshift_use_crio: true
+# As we didn't modified the node_group, it will use docker
+```
+
+After a successful installation, the containerRuntimeVersion field says the CR
+it uses:
+
+```
+$ oc get nodes -o=custom-columns=NAME:.metadata.name,CR:.status.nodeInfo.containerRuntimeVersion --selector='node-role.kubernetes.io/compute=true'
+NAME                                  CR
+app-node-0.shiftstack.automated.lan   cri-o://1.11.5
+app-node-1.shiftstack.automated.lan   docker://1.13.1
+app-node-2.shiftstack.automated.lan   docker://1.13.1
+```
+
+Also, notice the host running cri-o has a label added automatically such as
+`runtime=cri-o`:
+
+```
+$ oc get nodes app-node-0.shiftstack.automated.lan --show-labels
+NAME                                  STATUS    ROLES     AGE       VERSION           LABELS
+app-node-0.shiftstack.automated.lan   Ready     compute   37m       v1.11.0+d4cacc0   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/instance-type=1470ffe1-aea0-4806-a1be-e24c83c08e5f,beta.kubernetes.io/os=linux,failure-domain.beta.kubernetes.io/zone=nova,kubernetes.io/hostname=app-node-0.shiftstack.automated.lan,node-role.kubernetes.io/compute=true,runtime=cri-o
+```
+
+And there are some pods running:
+
+```
+$ kubectl get pods --all-namespaces --field-selector spec.nodeName=app-node-0.shiftstack.automated.lan -o wide
+NAMESPACE              NAME                  READY     STATUS    RESTARTS   AGE       IP            NODE                                  NOMINATED NODE
+openshift-monitoring   node-exporter-d4bq9   2/2       Running   0          24m       10.240.0.19   app-node-0.shiftstack.automated.lan   <none>
+openshift-node         sync-rsgrp            1/1       Running   0          40m       10.240.0.19   app-node-0.shiftstack.automated.lan   <none>
+openshift-sdn          ovs-t54s9             1/1       Running   0          40m       10.240.0.19   app-node-0.shiftstack.automated.lan   <none>
+openshift-sdn          sdn-64tz4             1/1       Running   0          40m       10.240.0.19   app-node-0.shiftstack.automated.lan   <none>
+```
+
+```
+[openshift@app-node-0 ~]$ sudo crictl ps
+W1025 04:45:04.056296   13242 util_unix.go:75] Using "/var/run/crio/crio.sock" as endpoint is deprecated, please consider using full url format "unix:///var/run/crio/crio.sock".
+CONTAINER ID        IMAGE                                                                                                                            CREATED             STATE               NAME                ATTEMPT
+ddfd64fdfb6a3       registry.redhat.io/openshift3/ose-kube-rbac-proxy@sha256:16daf6802d5e88393c271f78037f7c002ff774cd52161c1c1a71f2a84df71868        26 minutes ago      Running             kube-rbac-proxy     0
+3463217a35030       registry.redhat.io/openshift3/prometheus-node-exporter@sha256:e9b47d1705eb027735d528342e0457e597e28e36f6e38a0262b65802156bfe9b   26 minutes ago      Running             node-exporter       0
+02652966e1180       074bf04571e220389b5f3afa7669ea07ddd53d281668820ebf537f054487191f                                                                 41 minutes ago      Running             openvswitch         0
+acf2afc99b950       registry.redhat.io/openshift3/ose-node@sha256:3da731d733cd4d67897d22bfdcb027b009494de667bd7a3c870557102ce10bf5                   41 minutes ago      Running             sync                0
+6814b5f7a05d7       registry.redhat.io/openshift3/ose-node@sha256:3da731d733cd4d67897d22bfdcb027b009494de667bd7a3c870557102ce10bf5                   41 minutes ago      Running             sdn                 0
+[openshift@app-node-0 ~]$ sudo docker ps
+sudo: docker: command not found
 ```

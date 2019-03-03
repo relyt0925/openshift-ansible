@@ -25,11 +25,18 @@
       - strace
       - tcpdump
       etcd_ip: ETCD_IP_REPLACE
+      etcd_hostname: ETCD_HOSTNAME_REPLACE
+      etcdctlv2: ETCD_CTL2_REPLACE
 
   - name: add insights-client to package installs when on rhel
     set_fact:
       openshift_node_image_prep_packages: "{{ openshift_node_image_prep_packages | union(['insights-client']) }}"
     when: openshift_deployment_type == 'openshift-enterprise'
+
+  - name: add skopeo and crio to package installs when crio enabled
+    set_fact:
+      openshift_node_image_prep_packages: "{{ openshift_node_image_prep_packages | union(['skopeo', 'crio']) }}"
+    when: openshift_use_crio
 
   - set_fact:
       openshift_additional_repos: "{{ openshift_additional_repos + [{'name': 'install_repo', 'baseurl': openshift_azure_install_repo, 'enabled': true, 'gpgcheck': false}] }}"
@@ -45,7 +52,7 @@
     import_tasks: tasks/yum_certs.yml
 
   - name: update rpms
-    import_role:
+    include_role:
       name: os_update_latest
     vars:
       os_update_latest_reboot: True
@@ -57,6 +64,12 @@
 
 - hosts: nodes
   tasks:
+  - name: set seboolean for samba use
+    seboolean:
+      name: virt_use_samba
+      state: yes
+      persistent: yes
+
   - name: deconfigure yum repositories
     import_tasks: tasks/remove_yum.yml
 
@@ -81,11 +94,30 @@
     with_items:
     - { regexp: '^ResourceDisk\.Format=', line: 'ResourceDisk.Format=n' }
 
+  - name: create systemd directory for waagent
+    file:
+      path: /etc/systemd/system/waagent.service.d
+      state: directory
+      mode: 0755
+      owner: root
+      group: root
+
+  # set waagent to start after docker
+  - name: set waagent systemd file
+    copy:
+      dest: /etc/systemd/system/waagent.service.d/custom.conf
+      src: files/waagent.service
+      owner: root
+      group: root
+      mode: 0644
+
   - name: persist oreg_url
     copy:
       dest: "/etc/origin/oreg_url"
       content: "{{ oreg_url }}"
-    when: oreg_url is defined
+    when:
+    - oreg_url is defined
+    - oreg_url != ""
 
   - name: create a file with image name
     copy:

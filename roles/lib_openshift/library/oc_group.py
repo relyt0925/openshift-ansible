@@ -63,7 +63,7 @@ description:
 options:
   state:
     description:
-    - Supported states, present, absent, list
+    - State controls the action that will be taken with resource
     - present - will ensure object is created or updated to the value specified
     - list - will return a group
     - absent - will remove the group
@@ -1522,7 +1522,7 @@ class OCGroup(OpenShiftCLI):
         result = self._get(self.kind, self.config.name)
         if result['returncode'] == 0:
             self.group = Group(content=result['results'][0])
-        elif 'groups \"{}\" not found'.format(self.config.name) in result['stderr']:
+        elif 'groups.user.openshift.io \"{}\" not found'.format(self.config.name) in result['stderr']:
             result['returncode'] = 0
             result['results'] = [{}]
 

@@ -31,7 +31,7 @@
 
   - name: Find all hostnames for bootstrapping
     set_fact:
-      l_nodes_to_join: "{{ groups['oo_nodes_to_config'] | default([]) | map('extract', hostvars) | map(attribute='openshift.node.nodename') | list }}"
+      l_nodes_to_join: "{{ groups['oo_nodes_to_config'] | default([]) | map('extract', hostvars) | map(attribute='l_kubelet_node_name') | list }}"
 
   - name: Dump the bootstrap hostnames
     debug:
@@ -57,6 +57,33 @@
   - role: openshift_manage_node
     openshift_master_host: "{{ groups.oo_first_master.0 }}"
     openshift_manage_node_is_master: "{{ ('oo_masters_to_config' in group_names) | bool }}"
+
+- name: Create additional node network plugin groups
+  hosts: "{{ openshift_node_scale_up_group | default('oo_nodes_to_config') }}"
+  tasks:
+  - group_by:
+      key: oo_nodes_use_{{ (openshift_use_calico | default(False)) | ternary('calico','nothing') }}
+    changed_when: False
+
+- name: Nuage Node Configuration
+  hosts: oo_nodes_to_config
+  vars:
+    openshift_node_master_api_url: "{{ hostvars[groups.oo_first_master.0].openshift.master.api_url }}"
+  roles:
+  - role: nuage_node
+    when: openshift_use_nuage | default(false) | bool
+
+- name: Additional calico node config
+  hosts: oo_nodes_use_calico
+  roles:
+  - role: calico_node
+    when: openshift_use_calico | default(false) | bool
+
+- name: NSX Node Configuration
+  hosts: oo_nodes_to_config
+  roles:
+  - role: nsx_node
+    when: openshift_use_nsx | default(false) | bool
 
 - name: Node Join Checkpoint End
   hosts: all

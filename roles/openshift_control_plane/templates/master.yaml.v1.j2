@@ -73,6 +73,10 @@ kubeletClientInfo:
 kubernetesMasterConfig:
   apiServerArguments:
     {{ openshift.master.api_server_args | default(None) | lib_utils_to_padded_yaml( level=2 ) }}
+{% if openshift_encryption_config is defined %}
+    experimental-encryption-provider-config:
+    - {{ openshift_encryption_config_file }}
+{% endif %}
     storage-backend:
     - etcd3
     storage-media-type:
@@ -135,6 +139,9 @@ networkConfig:
   externalIPNetworkCIDRs: {{ openshift_master_external_ip_network_cidrs | default(["0.0.0.0/0"]) | lib_utils_to_padded_yaml(1,2) }}
 {% if openshift_master_ingress_ip_network_cidr is defined %}
   ingressIPNetworkCIDR: {{ openshift_master_ingress_ip_network_cidr }}
+{% endif %}
+{% if openshift_sdn_vxlan_port != '4789' %}
+  vxlanPort: {{ openshift_sdn_vxlan_port }}
 {% endif %}
 oauthConfig:
 {% if openshift_master_oauth_always_show_provider_selection is defined %}

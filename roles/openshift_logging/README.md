@@ -27,7 +27,6 @@ When `openshift_logging_install_logging` is set to `False` the `openshift_loggin
 - `openshift_logging_curator_default_days`: The default minimum age (in days) Curator uses for deleting log records. Defaults to '30'.
 - `openshift_logging_curator_run_hour`: The hour of the day that Curator will run at. Defaults to '0'.
 - `openshift_logging_curator_run_minute`: The minute of the hour that Curator will run at. Defaults to '0'.
-- `openshift_logging_curator_run_timezone`: The timezone that Curator uses for figuring out its run time. Defaults to 'UTC'.
 - `openshift_logging_curator_timeout`: The timeout for each Curator operation. Defaults to 300.
 - `openshift_logging_curator_script_log_level`: The script log level for Curator. Defaults to 'INFO'.
 - `openshift_logging_curator_log_level`: The log level for the Curator process. Defaults to 'ERROR'.
@@ -37,6 +36,7 @@ When `openshift_logging_install_logging` is set to `False` the `openshift_loggin
 - `openshift_logging_image_pull_secret`: The name of an existing pull secret to link to the logging service accounts
 
 - `openshift_logging_kibana_hostname`: The Kibana hostname. Defaults to 'kibana.example.com'.
+- `openshift_logging_kibana_session_timeout_seconds`: The time in seconds after which the session expires. Defaults to 604800 (168 hours). Only positive integeres are accepted.
 - `openshift_logging_kibana_cpu_request`: The minimum amount of CPU to allocate to Kibana or unset if not specified.
 - `openshift_logging_kibana_memory_limit`: The amount of memory to allocate to Kibana or unset if not specified.
 - `openshift_logging_kibana_proxy_debug`: When "True", set the Kibana Proxy log level to DEBUG. Defaults to 'false'.
@@ -69,7 +69,7 @@ When `openshift_logging_install_logging` is set to `False` the `openshift_loggin
 
 - `openshift_logging_es_cluster_size`: The number of ES cluster members. Defaults to '1'.
 - `openshift_logging_es_cpu_request`: The minimum amount of CPU to allocate for an ES pod cluster member. Defaults to 1 CPU.
-- `openshift_logging_es_memory_limit`: The amount of RAM that should be assigned to ES. Defaults to '8Gi'.
+- `openshift_logging_es_memory_limit`: The amount of RAM that should be assigned to ES. Defaults to '16Gi'.
 - `openshift_logging_es_log_appenders`: The list of rootLogger appenders for ES logs which can be: 'file', 'console'. Defaults to 'file'.
 - `openshift_logging_es_pv_selector`: A key/value map added to a PVC in order to select specific PVs.  Defaults to 'None'.
 - `openshift_logging_es_pvc_storage_class_name`: The name of the storage class to use for a static PVC.  Defaults to ''.

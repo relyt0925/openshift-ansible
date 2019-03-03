@@ -65,6 +65,12 @@ spec:
             touch /tmp/.old
           fi
 
+          if [[ -f /etc/origin/node/volume-config.yaml ]]; then
+            md5sum /etc/origin/node/volume-config.yaml > /tmp/.old-volume.config
+          else
+            touch /tmp/.old-volume-config
+          fi
+          
           # loop until BOOTSTRAP_CONFIG_NAME is set
           while true; do
             file=/etc/sysconfig/origin-node
@@ -102,18 +108,52 @@ spec:
             ) &
             break
           done
-
+          mkdir -p /etc/origin/node/tmp
           # periodically refresh both node-config.yaml and relabel the node
           while true; do
-            if ! oc extract "configmaps/${name}" -n openshift-node --to=/etc/origin/node --confirm --request-timeout=10s --config /etc/origin/node/node.kubeconfig "--token=$( cat /var/run/secrets/kubernetes.io/serviceaccount/token )"  > /dev/null; then
+            if ! oc extract "configmaps/${name}" -n openshift-node --to=/etc/origin/node/tmp --confirm --request-timeout=10s --config /etc/origin/node/node.kubeconfig "--token=$( cat /var/run/secrets/kubernetes.io/serviceaccount/token )"  > /dev/null; then
               echo "error: Unable to retrieve latest config for node" 2>&1
               sleep 15 &
               wait $!
               continue
             fi
+
+            KUBELET_HOSTNAME_OVERRIDE=$(cat /etc/sysconfig/KUBELET_HOSTNAME_OVERRIDE) || :
+            if ! [[ -z "$KUBELET_HOSTNAME_OVERRIDE" ]]; then
+                  #Patching node-config for hostname override
+                  echo "nodeName: $KUBELET_HOSTNAME_OVERRIDE" >> /etc/origin/node/tmp/node-config.yaml
+            fi
+
             # detect whether the node-config.yaml has changed, and if so trigger a restart of the kubelet.
-            md5sum /etc/origin/node/node-config.yaml > /tmp/.new
+            if [[ ! -f /etc/origin/node/node-config.yaml ]]; then
+              cat /dev/null > /tmp/.old
+            fi
+
+            if [[ ! -f /etc/origin/node/volume-config.yaml ]]; then
+              cat /dev/null > /tmp/.old-volume-config
+            fi
+
+            md5sum /etc/origin/node/tmp/node-config.yaml > /tmp/.new
+
+            if [[ ! -f /etc/origin/node/tmp/volume-config.yaml ]]; then
+              cat /dev/null > /tmp/.new-volume-config
+            else
+              md5sum /etc/origin/node/tmp/volume-config.yaml > /tmp/.new-volume-config
+            fi
+
+            trigger_restart=false
             if [[ "$( cat /tmp/.old )" != "$( cat /tmp/.new )" ]]; then
+              mv /etc/origin/node/tmp/node-config.yaml /etc/origin/node/node-config.yaml
+              trigger_restart=true
+            fi
+
+            if [[ "$( cat /tmp/.old-volume-config )" != "$( cat /tmp/.new-volume-config )" ]]; then
+              mv /etc/origin/node/tmp/volume-config.yaml /etc/origin/node/volume-config.yaml
+              trigger_restart=true
+            fi
+            
+            if [[ "$trigger_restart" = true ]]; then
+              SYSTEMD_IGNORE_CHROOT=1 systemctl restart tuned || :
               echo "info: Configuration changed, restarting kubelet" 2>&1
               # TODO: kubelet doesn't relabel nodes, best effort for now
               # https://github.com/kubernetes/kubernetes/issues/59314
@@ -145,6 +185,7 @@ spec:
             oc annotate --config=/etc/origin/node/node.kubeconfig "node/${NODE_NAME}" \
               node.openshift.io/md5sum="$( cat /tmp/.new | cut -d' ' -f1 )" --overwrite
             cp -f /tmp/.new /tmp/.old
+            cp -f /tmp/.new-volume-config /tmp/.old-volume-config
             sleep 180 &
             wait $!
           done
@@ -164,6 +205,13 @@ spec:
         - mountPath: /etc/sysconfig
           name: host-sysconfig-node
           readOnly: true
+        - mountPath: /var/run/dbus
+          name: var-run-dbus
+          readOnly: true
+        - mountPath: /run/systemd/system
+          name: run-systemd-system
+          readOnly: true
+
 
       volumes:
       # In bootstrap mode, the host config contains information not easily available
@@ -174,3 +222,12 @@ spec:
       - name: host-sysconfig-node
         hostPath:
           path: /etc/sysconfig
+      - hostPath:
+          path: /var/run/dbus
+        name: var-run-dbus
+      - hostPath:
+          path: /run/systemd/system
+        name: run-systemd-system
+      # Sync daemonset should tolerate all taints to make sure it runs on all nodes
+      tolerations:
+      - operator: "Exists"

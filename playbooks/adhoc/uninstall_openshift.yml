@@ -19,7 +19,6 @@
   # Since we're not calling openshift_facts we'll do this for now
   - set_fact:
       openshift_is_atomic: "{{ ostree_output.rc == 0 }}"
-      openshift_is_containerized: "{{ ostree_output.rc == 0 or containerized | default(false) | bool }}"
 
 # Stop services on all hosts prior to removing files.
 - hosts: nodes
@@ -186,7 +185,7 @@
     - openvswitch
     when: openshift_use_openshift_sdn | default(True) | bool
 
-  - shell: find /var/lib/origin/openshift.local.volumes -type d -exec umount {} \; 2>/dev/null || true
+  - shell: find /var/lib/origin/openshift.local.volumes/* -type d -exec umount {} \; 2>/dev/null || true
     changed_when: False
 
   - shell: docker rm -f "{{ item }}"-master "{{ item }}"-node
@@ -210,6 +209,11 @@
     changed_when: False
     failed_when: False
     with_items: "{{ exited_containers_to_delete.results }}"
+
+  - name: Delete all cri-o containers
+    shell: 'crictl ps --all -q | xargs crictl rm'
+    changed_when: False
+    failed_when: False
 
   - name: Remove k8s_ containters
     shell: docker ps -a -q -f name=k8s_ | xargs docker rm -f
@@ -269,6 +273,8 @@
     with_subelements:
     - "{{ directories.results | default([]) }}"
     - files
+    # Ignore failure when openshift.local.volumes is mounted.
+    failed_when: false
 
   - shell: systemctl daemon-reload
     changed_when: False
@@ -297,6 +303,7 @@
     file: path={{ item }} state=absent
     with_items:
     - /etc/systemd/system/openvswitch.service
+    - /etc/cni/net.d/80-openshift-network.conf
     when: openshift_use_openshift_sdn | default(True) | bool
 
   - name: Rebuild ca-trust
@@ -430,13 +437,6 @@
     - etcd
     - etcd3
     - firewalld
-
-  - name: Stop additional atomic services
-    service: name={{ item }} state=stopped
-    when: openshift_is_containerized | bool
-    with_items:
-    - etcd_container
-    failed_when: false
 
   - name: Remove packages
     package:

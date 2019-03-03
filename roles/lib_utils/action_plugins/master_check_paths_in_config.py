@@ -22,18 +22,22 @@ for you: {}"""
 
 
 ITEMS_TO_POP = (
+    ('auditConfig', 'policyConfiguration'),
     ('oauthConfig', 'identityProviders'),
+    ('kubernetesMasterConfig', 'apiServerArguments', 'etcd-servers-overrides')
 )
 # Create csv string of dot-separated dictionary keys:
 # eg: 'oathConfig.identityProviders, something.else.here'
 MIGRATED_ITEMS = ", ".join([".".join(x) for x in ITEMS_TO_POP])
 
 ALLOWED_DIRS = (
+    '/dev/null',
     '/etc/origin/master/',
     '/var/lib/origin',
     '/etc/origin/cloudprovider',
     '/etc/origin/kubelet-plugins',
     '/usr/libexec/kubernetes/kubelet-plugins',
+    '/var/log/origin',
 )
 
 ALLOWED_DIRS_STRING = ', '.join(ALLOWED_DIRS)
@@ -43,12 +47,19 @@ def pop_migrated_fields(mastercfg):
     """Some fields do not need to be searched because they will be migrated
     for users automatically"""
     # Walk down the tree and pop the specific item we migrate / don't care about
-    for item in ITEMS_TO_POP:
-        field = mastercfg
-        for sub_field in item:
-            parent_field = field
-            field = field[sub_field]
-        parent_field.pop(item[len(item) - 1])
+    for field_path in ITEMS_TO_POP:
+        pop_migrated_field(mastercfg, field_path)
+
+
+def pop_migrated_field(mastercfg, field_path):
+    """Remove field at given path from config"""
+    field = mastercfg
+    for sub_field in field_path:
+        parent_field = field
+        if sub_field not in field:
+            return
+        field = field[sub_field]
+    parent_field.pop(field_path[-1])
 
 
 def do_item_check(val, strings_to_check):

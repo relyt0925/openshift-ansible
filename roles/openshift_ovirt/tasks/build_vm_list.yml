@@ -4,42 +4,37 @@
 - fail:
     msg: "The openshift_ovirt_dns_zone variable is required."
   when:
-  - openshift_ovirt_dns_zone is not defined
+    - openshift_ovirt_dns_zone is none
+
 - name: Create virtual machine list fact
   set_fact:
-    vms: >-
-      {{ vms|default([]) }} + [
-      {% for iter in range(item.count) -%}
-      {% if iter > 0 -%},{% endif -%}
-      {
-      'name': '{{ item.name }}{{ iter }}.{{ openshift_ovirt_dns_zone }}',
-      'tag': 'openshift_{{ item.profile }}',
-      'cloud_init':
-      {
-      'host_name': '{{ item.name }}{{ iter }}.{{ openshift_ovirt_dns_zone }}',
-      'authorized_ssh_keys': '{{ openshift_ovirt_ssh_key }}'
-      },
-      'profile':  {{ openshift_ovirt_vm_profile[ item.profile ] }} ,
-      }
-      {% endfor -%}
-      ]
+    vms: "{{ lookup('template', './vms.j2') }}"
+  tags:
+    - openshift_ovirt
+
+- name: Create affnity groups
+  set_fact:
     affinity_groups: >-
+      {% if ovirt_admin | default(True) -%}
       {{ affinity_groups|default([]) }} + [
-      {% if item.count > 1 -%}
-      {
+        {% if item.count > 1 -%}
+        {
       'name': '{{ item.name }}_ag',
       'cluster': '{{ openshift_ovirt_cluster }}',
       'vm_enforcing': 'false',
       'vm_rule': 'negative',
       'vms': [
-      {% for iter in range(item.count) -%}
+        {% for iter in range(item.count) -%}
       '{{ item.name }}{{ iter }}.{{ openshift_ovirt_dns_zone }}',
-      {% endfor -%}
+        {% endfor -%}
       ]
-      }
+        }
+        {% endif -%}
+      ]
+      {% else -%}
+      []
       {% endif -%}
-      ]
   with_items: "{{ openshift_ovirt_vm_manifest }}"
   tags:
-  - openshift_ovirt
+    - openshift_ovirt
 ...

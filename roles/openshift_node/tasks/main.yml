@@ -6,9 +6,6 @@
     - openshift_deployment_type == 'openshift-enterprise'
     - not openshift_use_crio | bool
 
-- name: Start node image prepull
-  import_tasks: prepull.yml
-
 - import_tasks: dnsmasq_install.yml
 - import_tasks: dnsmasq.yml
 
@@ -32,6 +29,9 @@
     enabled: yes
     state: restarted
 
+- name: Start node image prepull
+  import_tasks: prepull.yml
+
 - name: include node installer
   import_tasks: install.yml
 
@@ -44,7 +44,6 @@
 # /etc/fstab and runs swapoff -a, if necessary.
 - name: Disable swap
   swapoff: {}
-  when: openshift_disable_swap | default(true) | bool
 
 # The atomic-openshift-node service will set this parameter on
 # startup, but if the network service is restarted this setting is

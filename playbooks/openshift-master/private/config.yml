@@ -79,8 +79,12 @@
     when: openshift_use_nuage | default(false) | bool
   - role: nuage_master
     when: openshift_use_nuage | default(false) | bool
-  - role: calico_master
+  - role: calico
     when: openshift_use_calico | default(false) | bool
+  - role: nsx
+    when:
+    - openshift_use_nsx | default(false) | bool
+    - inventory_hostname == groups.oo_first_master.0
   tasks:
   - import_role:
       name: kuryr

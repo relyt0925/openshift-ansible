@@ -24,6 +24,8 @@ def loaded_config():
         'oauthConfig':
         {'identityProviders':
             ['1', '2', '/this/will/fail']},
+        'auditConfig':
+        {'auditFilePath': "/var/log/origin/audit-ocp.log"},
         'fake_top_item':
         {'fake_item':
             {'fake_item2':
@@ -31,7 +33,15 @@ def loaded_config():
                     {"fake_item3":
                         ["some string 2",
                             {"fake_item4":
-                                {"some_key": "deeply_nested_string"}}]}]}}
+                                {"some_key": "deeply_nested_string"}}]}]}},
+        'kubernetesMasterConfig': {
+            'apiServerArguments': {
+                'etcd-servers-overrides': [
+                    '/events.k8s.io#https://master-0.example.com:3379',
+                    '/foo#bar'
+                ]
+            }
+        }
     }
     return data
 
